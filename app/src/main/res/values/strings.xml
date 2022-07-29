@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">YouTubeDown</string>
+    <string name="error_no_yt_link">Not a valid you tube link</string>
+</resources>

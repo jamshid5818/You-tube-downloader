@@ -3,16 +3,12 @@ package jx.lessons.youtubedown;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-
 import android.Manifest;
-import android.app.DownloadManager;
-import android.content.ClipData;
-import android.content.ClipDescription;
-import android.content.ClipboardManager;
-import android.content.Context;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,39 +17,44 @@ import android.provider.Settings;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.View;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import com.squareup.picasso.Callback;
+import com.squareup.picasso.Picasso;
+
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.concurrent.TimeUnit;
 import at.huber.youtubeExtractor.VideoMeta;
 import at.huber.youtubeExtractor.YouTubeExtractor;
-import at.huber.youtubeExtractor.YouTubeUriExtractor;
 import at.huber.youtubeExtractor.YtFile;
 
 public class MainActivity extends AppCompatActivity {
-    WebView webView;
     Button button;
     Button paste;
     EditText editText;
     private static String youtubeLink;
     private LinearLayout mainLayout;
     private ProgressBar mainProgressBar;
-
+    DownloadHelper downloadHelper;
+    ImageView imageView;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        downloadHelper = new DownloadHelper(this);
         button = findViewById(R.id.button1);
         paste = findViewById(R.id.button2);
         editText = findViewById(R.id.link);
         mainLayout = findViewById(R.id.main_layout);
         mainProgressBar = findViewById(R.id.prgrBarMain);
+        imageView = findViewById(R.id.image_video);
         mainProgressBar.setVisibility(View.GONE);
         button.setOnClickListener(view -> {
             mainProgressBar.setVisibility(View.VISIBLE);
@@ -64,64 +65,68 @@ public class MainActivity extends AppCompatActivity {
                 if (ytLink.contains("://youtu.be/") || ytLink.contains("youtube.com/watch?v=")) {
                     youtubeLink = ytLink;
                     // We have a valid link
+                    imageView.setVisibility(View.VISIBLE);
+                    imageView.setImageResource(R.drawable.img_1);
                     getYoutubeDownloadUrl(youtubeLink);
                 } else {
+                    mainProgressBar.setVisibility(View.INVISIBLE);
                     Toast.makeText(this, R.string.error_no_yt_link, Toast.LENGTH_LONG).show();
-                    finish();
                 }
         });
         paste.setOnClickListener(view -> {
-            pasteData();
+//            pasteData();
+            editText.setText(downloadHelper.pasteData());
         });
     }
-    void pasteData(){
-        ClipboardManager clipboardManager = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        String pasteData;
-        if (!(clipboardManager.hasPrimaryClip())){
-            Toast.makeText(this, "No data tp button paste", Toast.LENGTH_SHORT).show();
-        }else if(!(clipboardManager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN))){
-            Toast.makeText(this, "Data is not a text", Toast.LENGTH_SHORT).show();
-        }else {
-            ClipData.Item item = clipboardManager.getPrimaryClip().getItemAt(0);
-            pasteData = item.getText().toString();
-            editText.setText(pasteData);
-        }
-
-    }
-    private void getYoutubeDownloadUrl(String youtubeLink) {
+    @SuppressLint("StaticFieldLeak")
+    public void getYoutubeDownloadUrl(String youtubeLink) {
         new YouTubeExtractor(this) {
 
+            @SuppressLint("StaticFieldLeak")
             @Override
             public void onExtractionComplete(SparseArray<YtFile> ytFiles, VideoMeta vMeta) {
                 mainProgressBar.setVisibility(View.GONE);
 
                 if (ytFiles == null) {
                     // Something went wrong we got no urls. Always check this.
-                    finish();
                     return;
                 }
                 // Iterate over itags
+//                Picasso.get().load(vMeta.getThumbUrl()).into(imageView);
+                Picasso.get().load(vMeta.getHqImageUrl()).into(imageView);
+
+                Log.d("THUMB", vMeta.getThumbUrl());
+                imageView.setOnClickListener(view -> {
+                    Uri uri = Uri.parse(youtubeLink); // missing 'http://' will cause crashed
+                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                    startActivity(intent);
+                });
                 for (int i = 0, itag; i < ytFiles.size(); i++) {
                     itag = ytFiles.keyAt(i);
                     // ytFile represents one file with its url and meta data
                     YtFile ytFile = ytFiles.get(itag);
-
                     // Just add videos in a decent format => height -1 = audio
                     if (ytFile.getFormat().getHeight() == -1 || ytFile.getFormat().getHeight() >= 360) {
-                        addButtonToMainLayout(vMeta.getTitle(), ytFile);
+                        addButtonToMainLayout(vMeta.getTitle(), ytFile, vMeta.getViewCount());
+
                     }
                 }
             }
         }.extract(youtubeLink);
     }
-    private void addButtonToMainLayout(final String videoTitle, final YtFile ytfile) {
+
+    private void addButtonToMainLayout(final String videoTitle, final YtFile ytfile, Long hajmi) {
         // Display some buttons and let the user choose the format
+
         String btnText = (ytfile.getFormat().getHeight() == -1) ? "Audio " +
                 ytfile.getFormat().getAudioBitrate() + " kbit/s" :
                 ytfile.getFormat().getHeight() + "p";
-        btnText += (ytfile.getFormat().isDashContainer()) ? " dash" : "";
         Button btn = new Button(this);
+        btn.setWidth(90);
+        btn.setHeight(21);
+        btn.setMarqueeRepeatLimit(15);
         btn.setText(btnText);
+        btn.setBackgroundResource(R.drawable.bacground_create_buttons);
         btn.setOnClickListener(v -> {
             String filename;
             if (videoTitle.length() > 55) {
@@ -130,24 +135,12 @@ public class MainActivity extends AppCompatActivity {
                 filename = videoTitle + "." + ytfile.getFormat().getExt();
             }
             filename = filename.replaceAll("[\\\\><\"|*?%:#/]", "");
-            downloadFromUrl(ytfile.getUrl(), videoTitle, filename);
+            downloadHelper.downloadFromUrl(ytfile.getUrl(), videoTitle, filename);
             finish();
         });
         mainLayout.addView(btn);
     }
-    private void downloadFromUrl(String youtubeDlUrl, String downloadTitle, String fileName) {
-        Uri uri = Uri.parse(youtubeDlUrl);
-        DownloadManager.Request request = new DownloadManager.Request(uri);
-        request.setTitle(downloadTitle);
-
-        request.allowScanningByMediaScanner();
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-
-        DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        manager.enqueue(request);
-    }
-    void permissions(){
+    public void permissions(){
         if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.M){
             if (ContextCompat.checkSelfPermission(this,Manifest.permission.READ_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},100);
@@ -170,4 +163,5 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
 }
